@@ -290,9 +290,9 @@ const FORME_ITEMS = [
 // Exercice au temps : objectif en secondes, temps cumulé sur plusieurs reprises
 const isoEx = (nom, min) => ({ nom, mode: 'temps', cible: min * 60, fait: 0, ok: false, series: [], note: '' });
 const MODELES_INTEGRES = {
-  'int-evpa': { titre: 'EVPA', type: 'Prévention', duree: 30, integre: true, src: 'int-evpa', exos: [
+  'int-evpa': { titre: 'EVPA', type: 'Prévention', duree: 26, integre: true, src: 'int-evpa', exos: [
     isoEx('Orteil gauche', 2), isoEx('Orteil / cheville droite', 2), isoEx('Mollet gauche', 2), isoEx('Quadri gauche', 3), isoEx('Ischio droit', 3),
-    isoEx('Cosaque', 3), isoEx('Pigeon', 3), isoEx('Fente', 4), isoEx('Fléchisseur de hanche droite', 3), isoEx('Pendu', 2), isoEx('Pompe 2.0', 2),
+    isoEx('Cosaque', 3), isoEx('Pigeon', 3), isoEx('Fente', 4), isoEx('Pendu', 2), isoEx('Pompe 2.0', 2),
   ] },
 };
 
@@ -715,7 +715,7 @@ function viewData() {
 /* ---------- Éditeur de séance ---------- */
 let draft = null, draftId = null, saveT = null, confirmDel = null;
 function openSession(id, date, fromTpl) {
-  if (id) { draftId = id; draft = clone(data.seances.get(id)); }
+  if (id) { draftId = id; draft = clone(data.seances.get(id)); if (draft.src === 'int-evpa') { const n = draft.exos.length; draft.exos = draft.exos.filter(e => e.nom !== 'Fléchisseur de hanche droite' || e.fait > 0); if (draft.exos.length !== n) persistDraft(); } }
   else {
     draftId = uid();
     draft = fromTpl ? { ...clone(fromTpl), date, statut: 'prevue', rpe: null, duree: fromTpl.duree || 60, notes: '' } : { date, titre: '', type: 'Force', statut: 'prevue', duree: 60, rpe: null, notes: '', exos: [] };
