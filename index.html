@@ -177,6 +177,34 @@ textarea.inp { min-height: 70px; resize: vertical; }
 .set.done .stepper { background: var(--good-soft); }
 .exo-f { display: flex; gap: 8px; flex-wrap: wrap; }
 
+.exo.done { box-shadow: inset 0 0 0 2px var(--good), var(--shadow); }
+.iso { display: flex; flex-direction: column; gap: 10px; }
+.iso-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.iso-t { font-family: var(--f-display); font-size: 42px; font-weight: 700; line-height: 1; }
+.pbar { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.pbar > span { display: block; height: 100%; background: var(--grad); border-radius: 99px; }
+.iso .row .btn { min-height: 48px; }
+.tag { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-2); }
+.plist { display: flex; flex-direction: column; gap: 8px; }
+.prow { border: 0; text-align: left; width: 100%; background: var(--surface); border-radius: var(--r); box-shadow: var(--shadow); padding: 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; align-items: center; }
+.prow .pn { font-weight: 600; font-size: 17px; }
+.prow .pt { font-family: var(--f-display); font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.prow .pt small { font-size: 14px; color: var(--muted); font-weight: 600; }
+.prow .pbar { grid-column: 1 / -1; }
+.prow.ok { box-shadow: inset 0 0 0 2px var(--good), var(--shadow); }
+.prow.ok .pn::after { content: " ✓"; color: var(--good); }
+.prow.run .pt { color: var(--accent); }
+.focus { padding-block: 20px calc(40px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; align-items: center; gap: 22px; text-align: center; }
+.focus h1 { font-size: 36px; }
+.ring { position: relative; width: min(78vw, 300px); aspect-ratio: 1; max-width: 100%; }
+.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring .rbg { fill: none; stroke: var(--surface-2); stroke-width: 16; }
+.ring .rfg { fill: none; stroke: url(#rgrad); stroke-width: 16; stroke-linecap: round; }
+.ring .rc { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+.ring .big-t { font-family: var(--f-display); font-size: clamp(56px, 18vw, 84px); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.btn.huge { width: 100%; max-width: 420px; min-height: 66px; font-size: 21px; border-radius: 18px; }
+.seg.mini { flex-wrap: nowrap; gap: 4px; min-width: 0; }
+.seg.mini button { min-width: 0; min-height: 36px; padding: 4px 0; font-size: 14px; flex: 1 1 0; border-radius: 8px; }
 .tpl-list { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
 .tpl-list .btn { flex: none; }
 
@@ -258,6 +286,16 @@ const FORME_ITEMS = [
   { k: 'mot', label: 'Motivation', lo: 'Faible', hi: 'Au top' },
 ];
 
+/* ---------- Séances types intégrées ---------- */
+// Exercice au temps : objectif en secondes, temps cumulé sur plusieurs reprises
+const isoEx = (nom, min) => ({ nom, mode: 'temps', cible: min * 60, fait: 0, ok: false, series: [], note: '' });
+const MODELES_INTEGRES = {
+  'int-evpa': { titre: 'EVPA', type: 'Prévention', duree: 30, integre: true, src: 'int-evpa', exos: [
+    isoEx('Orteil gauche', 2), isoEx('Orteil / cheville droite', 2), isoEx('Mollet gauche', 2), isoEx('Quadri gauche', 3), isoEx('Ischio droit', 3),
+    isoEx('Cosaque', 3), isoEx('Pigeon', 3), isoEx('Fente', 4), isoEx('Fléchisseur de hanche droite', 3), isoEx('Pendu', 2), isoEx('Pompe 2.0', 2),
+  ] },
+};
+
 /* ---------- Utilitaires ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -271,9 +309,15 @@ const fShort = s => parseD(s).toLocaleDateString('fr-FR', { day: 'numeric', mont
 const nf = (v, d = 1) => Number(v).toLocaleString('fr-FR', { maximumFractionDigits: d });
 const uid = () => 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const clone = o => JSON.parse(JSON.stringify(o));
+const mmss = sec => Math.floor(sec / 60) + ':' + String(Math.floor(sec % 60)).padStart(2, '0');
+const allTpls = () => [...Object.entries(MODELES_INTEGRES), ...data.modeles.entries()];
+const getTpl = id => MODELES_INTEGRES[id] || data.modeles.get(id);
+const fmtDur = sec => sec >= 3600 ? Math.floor(sec / 3600) + ' h ' + String(Math.floor(sec % 3600 / 60)).padStart(2, '0') : Math.floor(sec / 60) + ' min ' + String(Math.floor(sec % 60)).padStart(2, '0');
+const resetExos = exos => (exos || []).forEach(x => { delete x.rpe; (x.series || []).forEach(st => st.ok = false); if (x.mode === 'temps') { x.fait = 0; x.ok = false; } });
 const e1rm = (r, k) => (r > 0 && k > 0) ? (r === 1 ? k : k * (1 + r / 30)) : 0;
-const pref = (k, def) => { try { const v = localStorage.getItem('cd-pref-' + k); return v == null ? def : JSON.parse(v); } catch (e) { return def; } };
-const setPref = (k, v) => { try { localStorage.setItem('cd-pref-' + k, JSON.stringify(v)); } catch (e) {} };
+const prefMem = {};
+const pref = (k, def) => { if (k in prefMem) return prefMem[k]; try { const v = localStorage.getItem('cd-pref-' + k); return v == null ? def : JSON.parse(v); } catch (e) { return def; } };
+const setPref = (k, v) => { prefMem[k] = v; try { localStorage.setItem('cd-pref-' + k, JSON.stringify(v)); } catch (e) {} };
 
 let toastT;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2600); }
@@ -336,10 +380,12 @@ function acwr() {
 function lastPerf(name, beforeDate, excludeId) {
   const n = name.trim().toLowerCase(); if (!n) return null;
   const list = seancesList().filter(s => s.id !== excludeId && s.date <= beforeDate).sort((a, b) => b.date.localeCompare(a.date));
-  for (const s of list) { const e = (s.exos || []).find(x => (x.nom || '').trim().toLowerCase() === n); if (e && e.series && e.series.length) return { s, e }; }
+  for (const s of list) { const e = (s.exos || []).find(x => (x.nom || '').trim().toLowerCase() === n); if (e && ((e.series && e.series.length) || (e.mode === 'temps' && e.fait))) return { s, e }; }
   return null;
 }
-function summarize(e) {
+function summarize(e) { const t = summarize0(e); return e.rpe && e.mode !== 'temps' ? t + ' · RPE ' + e.rpe : t; }
+function summarize0(e) {
+  if (e.mode === 'temps') return mmss(e.fait || 0) + ' sur ' + mmss(e.cible || 0);
   const ser = e.series || []; if (!ser.length) return '';
   const same = ser.every(x => x.r === ser[0].r && x.k === ser[0].k);
   if (same) return ser.length + '×' + ser[0].r + (ser[0].k ? ' · ' + nf(ser[0].k) + ' kg' : '');
@@ -461,7 +507,10 @@ function viewToday() {
       <button class="btn on-accent" data-act="forme" style="align-self:flex-start">Remplir ma forme</button></div>`;
   }
 
-  const todayList = todays.length ? todays.map(s => sessBtn(s)).join('') : `<div class="empty">Aucune séance prévue aujourd'hui.</div>`;
+  const evS = todays.find(x => x.src === 'int-evpa'); const evCib = MODELES_INTEGRES['int-evpa'].exos.reduce((a, e) => a + e.cible, 0);
+  const evBtn = `<button class="sess ${evS && evS.statut === 'faite' ? 'faite' : 'prevue'}" data-act="evpa"><span class="stripe"></span><span class="grow"><span class="t">⏱ EVPA</span><br><span class="small muted">${evS ? mmss((evS.exos || []).reduce((a, e) => a + (e.fait || 0), 0)) + ' / ' + mmss(evCib) + ' · ' + (evS.exos || []).filter(e => e.ok).length + '/' + (evS.exos || []).length + ' exercices' : 'Prévention · ' + MODELES_INTEGRES['int-evpa'].exos.length + ' exercices au temps'}</span></span><span class="chev">›</span></button>`;
+  const others = todays.filter(x => x.src !== 'int-evpa');
+  const todayList = others.length ? others.map(s => sessBtn(s)).join('') : `<div class="empty">Aucune séance prévue aujourd'hui.</div>`;
   const late = backupLate(); const lb = pref('lastBackup', 0);
   const warn = late ? `<div class="backup-warn"><span class="grow">${lb ? 'Dernière sauvegarde il y a ' + Math.floor((Date.now() - lb) / 864e5) + ' jours.' : 'Tu n\'as encore jamais sauvegardé ton carnet.'}</span><button class="btn sm primary" data-act="backup">Sauvegarder</button></div>` : '';
   return `
@@ -470,17 +519,18 @@ function viewToday() {
   <section>
     <div class="sec-head"><h2>Séance du jour</h2></div>
     ${todayList}
-    <div class="row"><button class="btn primary grow" data-act="new" data-date="${t}">+ Nouvelle séance</button>${data.modeles.size ? `<button class="btn grow" data-act="pick-tpl" data-date="${t}">Depuis un modèle</button>` : ''}</div>
+    ${evBtn}
+    <div class="row"><button class="btn primary grow" data-act="new" data-date="${t}">+ Nouvelle séance</button><button class="btn grow" data-act="pick-tpl" data-date="${t}">Depuis un modèle</button></div>
   </section>
   <section>
     <div class="sec-head"><h2>Cette semaine</h2><span class="small muted">${fShort(wk)} – ${fShort(wkEnd)}</span></div>
     <div class="stats">
       <div class="stat"><span class="eyebrow">Séances</span><span class="v">${done.length}<small>/ ${week.length}</small></span><span class="small muted">faites / prévues</span></div>
-      <div class="stat"><span class="eyebrow">Charge sRPE</span><span class="v">${nf(load, 0)}<small>UA</small></span><span class="small muted">RPE × minutes</span></div>
+      <div class="stat"><span class="eyebrow">EVPA</span><span class="v">${Math.round(week.reduce((a, x) => a + (x.exos || []).reduce((b, e) => b + (e.mode === 'temps' ? e.fait || 0 : 0), 0), 0) / 60)}<small>min</small></span><span class="small muted">cette semaine</span></div>
       <div class="stat"><span class="eyebrow">Tonnage</span><span class="v">${ton >= 1000 ? nf(ton / 1000, 1) + '<small>t</small>' : nf(ton, 0) + '<small>kg</small>'}</span><span class="small muted">reps × charge</span></div>
-      <div class="stat"><span class="eyebrow">Ratio aigu/chronique</span><span class="v">${ratio == null ? '–' : nf(ratio, 2)}</span>${ratioPill}</div>
+      <div class="stat"><span class="eyebrow">Forme moyenne</span><span class="v">${(() => { const v = []; for (let i = 0; i < 7; i++) { const r = formeDay(addDays(wk, i)); if (r != null) v.push(r); } return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : '–'; })()}</span><span class="small muted">indice sur 100</span></div>
     </div>
-    ${rpes.length ? `<span class="small muted">RPE moyen de la semaine : <b>${nf(rpes.reduce((a, b) => a + b, 0) / rpes.length)}</b>/10</span>` : ''}
+    ${(() => { const r = done.flatMap(x => (x.exos || []).map(e => e.rpe).filter(Boolean)); return r.length ? `<span class="small muted">RPE moyen des exercices cette semaine : <b>${nf(r.reduce((a, b) => a + b, 0) / r.length)}</b>/10</span>` : ''; })()}
   </section>
   <section>
     <div class="sec-head"><h2>À venir</h2><button class="btn ghost sm" data-goto="plan">Planning ›</button></div>
@@ -502,7 +552,7 @@ function viewPlan() {
     </div>`;
   }
   const wkDone = all.filter(s => s.date >= weekOf && s.date <= addDays(weekOf, 6));
-  const tpls = [...data.modeles.entries()];
+  const tpls = allTpls();
   return `
   <section>
     <div class="weeknav"><button class="btn" data-week="-1" aria-label="Semaine précédente">‹</button>
@@ -514,7 +564,7 @@ function viewPlan() {
   </section>
   <section>
     <div class="sec-head"><h2>Modèles de séance</h2></div>
-    ${tpls.length ? `<div class="list">${tpls.map(([id, m]) => `<div class="card" style="flex-direction:row;align-items:center"><div class="grow"><b>${esc(m.titre)}</b><br><span class="small muted">${esc(m.type)} · ${(m.exos || []).map(e => esc(e.nom)).join(', ')}</span></div><button class="icon-btn" data-deltpl="${esc(id)}" aria-label="Supprimer le modèle">✕</button></div>`).join('')}</div>`
+    ${tpls.length ? `<div class="list">${tpls.map(([id, m]) => `<div class="card" style="flex-direction:row;align-items:center"><div class="grow"><b>${esc(m.titre)}</b><br><span class="small muted">${esc(m.type)} · ${(m.exos || []).map(e => esc(e.nom)).join(', ')}</span></div>${m.integre ? '<span class="tag">Intégrée</span>' : `<button class="icon-btn" data-deltpl="${esc(id)}" aria-label="Supprimer le modèle">✕</button>`}</div>`).join('')}</div>`
       : '<div class="empty">Ouvre une séance et touche « Enregistrer comme modèle » pour créer ta semaine type (ex. Force lundi, Pliométrie jeudi).</div>'}
   </section>`;
 }
@@ -523,7 +573,7 @@ function viewPlan() {
 function viewProg() {
   const all = seancesList().filter(s => s.statut === 'faite').sort((a, b) => a.date.localeCompare(b.date));
   const names = {};
-  all.forEach(s => (s.exos || []).forEach(e => { const n = (e.nom || '').trim(); if (n) names[n] = (names[n] || 0) + 1; }));
+  all.forEach(s => (s.exos || []).forEach(e => { if (e.mode === 'temps') return; const n = (e.nom || '').trim(); if (n) names[n] = (names[n] || 0) + 1; }));
   const list = Object.keys(names).sort((a, b) => names[b] - names[a]);
   if (!list.includes(progExo)) progExo = list[0] || '';
   let exoBlock = '<div class="empty">Termine une séance de musculation pour voir ta progression par exercice.</div>';
@@ -553,10 +603,8 @@ function viewProg() {
   for (let i = 29; i >= 0; i--) { const d = addDays(todayS(), -i); const f = data.forme.get(d); const o = data.oura.get(d); const tt = parseD(d).getTime(); const fr = readiness(f, o); if (fr != null) fpts.push({ t: tt, y: fr, d }); if (f && f.poids) ppts.push({ t: tt, y: +f.poids, d }); if (o && o.hrv) hpts.push({ t: tt, y: o.hrv, d }); }
 
   return `
+  ${viewEvpa()}
   <section><h2>Par exercice</h2>${exoBlock}</section>
-  <section><div class="sec-head"><h2>Charge d'entraînement</h2><span class="small muted">sRPE / semaine</span></div>
-    <div class="card"><div class="chart">${bars.some(b => b.v) ? barChart(bars) : '<p class="empty-chart">Renseigne la durée et le RPE en terminant tes séances pour suivre ta charge.</p>'}</div>
-    <span class="small muted">Une hausse de plus de 10 à 15 % d'une semaine à l'autre augmente le risque de blessure.</span></div></section>
   <section><div class="sec-head"><h2>Indice de forme</h2><span class="small muted">30 derniers jours</span></div>
     <div class="card"><div class="chart">${lineChart(fpts, '', [0, 100])}</div></div></section>
   ${hpts.length ? `<section><div class="sec-head"><h2>HRV nocturne</h2><span class="small muted">30 derniers jours · Oura</span></div><div class="card"><div class="chart">${lineChart(hpts, 'ms')}</div><span class="small muted">Une HRV nettement sous ta moyenne signale souvent une fatigue à surveiller : allège la séance ce jour-là.</span></div></section>` : ''}
@@ -566,6 +614,40 @@ function viewProg() {
   </section>`;
 }
 
+function viewEvpa() {
+  const recs = [];
+  seancesList().forEach(x => (x.exos || []).forEach(e => { if (e.mode === 'temps' && e.fait > 0) recs.push({ date: x.date, nom: (e.nom || '').trim(), sec: e.fait }); }));
+  if (!recs.length) return `<section><h2>EVPA</h2><div class="empty">Le temps passé sur chaque exercice EVPA s'affichera ici, par jour, par semaine et par mois.</div></section>`;
+  const ordre = MODELES_INTEGRES['int-evpa'].exos.map(e => e.nom);
+  const noms = [...new Set([...ordre.filter(n => recs.some(r => r.nom === n)), ...recs.map(r => r.nom)])];
+  const per = pref('evpaPer', 'semaine'); let sel = pref('evpaExo', ''); if (sel && !noms.includes(sel)) sel = '';
+  const f = recs.filter(r => !sel || r.nom === sel);
+  const sum = (a, b, list = f) => list.filter(r => r.date >= a && r.date <= b).reduce((x, r) => x + r.sec, 0);
+  const t = todayS(); const wk = monday(t); const d0 = parseD(t); const mStart = iso(new Date(d0.getFullYear(), d0.getMonth(), 1));
+  const buckets = [];
+  if (per === 'jour') for (let i = 13; i >= 0; i--) { const d = addDays(t, -i); buckets.push({ a: d, b: d, label: String(parseD(d).getDate()) }); }
+  else if (per === 'semaine') for (let i = 7; i >= 0; i--) { const a = addDays(wk, -7 * i); buckets.push({ a, b: addDays(a, 6), label: fShort(a) }); }
+  else for (let i = 5; i >= 0; i--) { const a = new Date(d0.getFullYear(), d0.getMonth() - i, 1), b = new Date(d0.getFullYear(), d0.getMonth() - i + 1, 0); buckets.push({ a: iso(a), b: iso(b), label: a.toLocaleDateString('fr-FR', { month: 'short' }) }); }
+  const bars = buckets.map((k, i) => ({ label: k.label, v: Math.round(sum(k.a, k.b) / 60), cur: i === buckets.length - 1 }));
+  const cur = buckets[buckets.length - 1];
+  const parExo = noms.map(n => ({ n, sec: sum(cur.a, cur.b, recs.filter(r => r.nom === n)) })).filter(x => x.sec > 0);
+  const lib = { jour: 'aujourd\'hui', semaine: 'cette semaine', mois: 'ce mois-ci' };
+  return `<section><div class="sec-head"><h2>EVPA</h2><span class="small muted">temps cumulé</span></div>
+    <div class="stats">
+      <div class="stat"><span class="eyebrow">Aujourd'hui</span><span class="v">${Math.round(sum(t, t) / 60)}<small>min</small></span></div>
+      <div class="stat"><span class="eyebrow">Cette semaine</span><span class="v">${Math.round(sum(wk, addDays(wk, 6)) / 60)}<small>min</small></span></div>
+      <div class="stat"><span class="eyebrow">Ce mois-ci</span><span class="v">${Math.round(sum(mStart, t) / 60)}<small>min</small></span></div>
+      <div class="stat"><span class="eyebrow">Depuis le début</span><span class="v">${Math.round(f.reduce((x, r) => x + r.sec, 0) / 60)}<small>min</small></span></div>
+    </div>
+    <div class="card">
+      <div class="seg">${[['jour', 'Par jour'], ['semaine', 'Par semaine'], ['mois', 'Par mois']].map(([k, l]) => `<button data-evper="${k}" aria-pressed="${per === k}">${l}</button>`).join('')}</div>
+      <select class="inp" id="evpa-exo" aria-label="Exercice EVPA"><option value="">Tous les exercices</option>${noms.map(n => `<option ${n === sel ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
+      <div class="chart">${bars.some(b => b.v) ? barChart(bars) : '<p class="empty-chart">Pas encore de temps sur cette période.</p>'}</div>
+      <span class="small muted">En minutes${sel ? ' · ' + esc(sel) : ''}.</span>
+    </div>
+    ${sel ? '' : `<div class="card"><b>Par exercice, ${lib[per]}</b>${parExo.length ? parExo.map(x => `<div class="kv"><span>${esc(x.n)}</span><b class="num">${fmtDur(x.sec)}</b></div>`).join('') : '<span class="small muted">Rien pour l\'instant sur cette période.</span>'}</div>`}
+  </section>`;
+}
 function lineChart(pts, unit, fixed) {
   if (pts.length < 2) return '<p class="empty-chart">Il faut au moins 2 relevés pour tracer une courbe.</p>';
   const W = 340, H = 160, pl = 34, pr = 40, pt = 14, pb = 22;
@@ -625,12 +707,6 @@ function viewData() {
         <a class="btn primary" href="${RELAIS}/login">Connecter Oura</a>`}
     </div>
   </section>
-  <section><h2>Réglages</h2>
-    <div class="card">
-      <span class="small muted" style="font-weight:600">Temps de repos par défaut entre les séries</span>
-      <div class="seg" id="rest-seg">${[60, 90, 120, 180, 240, 300].map(s => `<button data-rest="${s}" aria-pressed="${s === rest}">${s < 120 ? s + ' s' : (s / 60) + ' min'}</button>`).join('')}</div>
-    </div>
-  </section>
   ${installed ? '' : `<section><h2>Installer l'app</h2>
     <div class="card small"><span>Dans Safari, touche <b>Partager</b> puis <b>Sur l'écran d'accueil</b>. Ouvre ensuite l'app depuis son icône : tes données y seront enregistrées.</span></div>
   </section>`}`;
@@ -643,26 +719,103 @@ function openSession(id, date, fromTpl) {
   else {
     draftId = uid();
     draft = fromTpl ? { ...clone(fromTpl), date, statut: 'prevue', rpe: null, duree: fromTpl.duree || 60, notes: '' } : { date, titre: '', type: 'Force', statut: 'prevue', duree: 60, rpe: null, notes: '', exos: [] };
-    (draft.exos || []).forEach(e => (e.series || []).forEach(s => s.ok = false));
+    resetExos(draft.exos); delete draft.integre;
     if (fromTpl) persistDraft();
   }
-  confirmDel = null; renderSheet(true);
+  confirmDel = null; isoFocus = null; renderSheet(true);
 }
 function persistDraft() { if (!draft) return; draft.maj = Date.now(); persist('seances', draftId, clone(draft)); markSaved(); }
 function touch() { clearTimeout(saveT); $('#saved') && ($('#saved').textContent = 'Modification…'); saveT = setTimeout(persistDraft, 700); }
 function markSaved() { const el = $('#saved'); if (el) el.textContent = mode === 'cloud' ? 'Enregistré' : 'Enregistré sur l\'appareil'; }
-function closeSheet() { if (draft && saveT) { clearTimeout(saveT); saveT = null; if (isMeaningful()) persistDraft(); } draft = null; $('#sheet').hidden = true; $('#sheet').innerHTML = ''; document.body.style.overflow = ''; render(); }
+function closeSheet() { isoPause(true); isoFocus = null; if (draft && saveT) { clearTimeout(saveT); saveT = null; if (isMeaningful()) persistDraft(); } draft = null; $('#sheet').hidden = true; $('#sheet').innerHTML = ''; document.body.style.overflow = ''; render(); }
 function isMeaningful() { return data.seances.has(draftId) || draft.titre || (draft.exos || []).length || draft.notes; }
 
+let isoRun = null, isoInt = null, isoLock = null, isoFocus = null;
+const RING_C = 2 * Math.PI * 110;
+const isoDone = (e, i) => (e.fait || 0) + (isoRun && isoRun.ei === i ? (Date.now() - isoRun.t0) / 1000 : 0);
+function isoCard(e, i, lp) {
+  const run = isoRun && isoRun.ei === i; const done = isoDone(e, i); const pct = Math.min(100, done / (e.cible || 1) * 100);
+  return `<div class="exo ${e.ok ? 'done' : ''}" data-ei="${i}">
+    <div class="exo-h"><input class="inp grow" list="exo-list" data-f="nom" value="${esc(e.nom)}" placeholder="Exercice" aria-label="Nom de l'exercice">
+      ${i > 0 ? `<button class="icon-btn" data-act="up" aria-label="Monter l'exercice">↑</button>` : ''}
+      <button class="icon-btn ${confirmDel === 'e' + i ? 'confirm' : ''}" data-act="del-exo" aria-label="Retirer l'exercice">${confirmDel === 'e' + i ? 'Retirer ?' : '✕'}</button></div>
+    ${lp ? `<div class="hint">Dernière fois (${fShort(lp.s.date)}) : <b>${esc(summarize(lp.e))}</b></div>` : ''}
+    <div class="iso">
+      <div class="iso-top"><span class="iso-t num" id="iso-t-${i}">${mmss(done)}</span><span class="muted num">/ ${mmss(e.cible || 0)}</span>${e.ok ? '<span class="pill good">Fait ✓</span>' : ''}</div>
+      <div class="pbar"><span id="iso-b-${i}" style="width:${pct}%"></span></div>
+      <div class="row"><button class="btn ${run ? '' : 'primary'} grow" data-act="iso-go">${run ? '⏸ Pause' : done > 0 && !e.ok ? '▶ Reprendre' : '▶ Démarrer'}</button><button class="btn" data-act="iso-adj" data-d="-15" aria-label="Retirer 15 secondes">−15 s</button><button class="btn" data-act="iso-adj" data-d="15" aria-label="Ajouter 15 secondes">+15 s</button></div>
+      <div class="row small muted" style="justify-content:space-between"><span>Objectif cumulé</span><span class="row"><button class="btn sm" data-act="iso-cible" data-d="-15" aria-label="Objectif moins 15 secondes">−</button><b class="num">${mmss(e.cible || 0)}</b><button class="btn sm" data-act="iso-cible" data-d="15" aria-label="Objectif plus 15 secondes">+</button></span></div>
+    </div>
+    ${e.fait ? '<div class="exo-f"><button class="btn sm" data-act="iso-reset">Remettre à zéro</button></div>' : ''}
+  </div>`;
+}
+function renderPrev(first) {
+  const sh = $('#sheet'); const keep = first ? 0 : sh.scrollTop; const s = draft;
+  const savedTxt = data.seances.has(draftId) ? 'Enregistré' : 'Nouvelle séance';
+  if (isoFocus != null && s.exos[isoFocus]) {
+    const i = isoFocus, e = s.exos[i], run = isoRun && isoRun.ei === i, d = isoDone(e, i);
+    sh.innerHTML = `
+    <div class="sheet-h"><div class="wrap in"><button class="btn ghost" data-act="unfocus">‹ Exercices</button><span class="saved" id="saved">${savedTxt}</span></div></div>
+    <div class="wrap focus" data-ei="${i}">
+      <span class="eyebrow">EVPA · objectif ${mmss(e.cible)}</span>
+      <h1>${esc(e.nom)}</h1>
+      <div class="ring"><svg viewBox="0 0 260 260" aria-hidden="true"><defs><linearGradient id="rgrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22D3A6"/><stop offset="1" stop-color="#38BDF8"/></linearGradient></defs>
+        <circle class="rbg" cx="130" cy="130" r="110"/><circle class="rfg" id="iso-r-${i}" cx="130" cy="130" r="110" stroke-dasharray="${RING_C}" stroke-dashoffset="${RING_C * (1 - Math.min(1, d / e.cible))}"/></svg>
+        <div class="rc"><span class="big-t" id="iso-t-${i}">${mmss(d)}</span><span class="muted num">/ ${mmss(e.cible)}</span>${e.ok ? '<span class="pill good">Fait ✓</span>' : ''}</div></div>
+      <div class="row" style="width:100%;max-width:420px"><button class="btn grow" data-act="iso-adj" data-d="-15" aria-label="Retirer 15 secondes">−15 s</button><button class="btn grow" data-act="iso-adj" data-d="15" aria-label="Ajouter 15 secondes">+15 s</button></div>
+      <button class="btn ${run ? '' : 'primary'} huge" data-act="iso-go">${run ? '⏸ Pause' : d > 0 && !e.ok ? '▶ Reprendre' : e.ok ? '▶ Continuer' : '▶ Démarrer'}</button>
+      ${e.fait || run ? '<button class="btn ghost" data-act="iso-reset">Remettre à zéro</button>' : ''}
+    </div>`;
+    sh.hidden = false; document.body.style.overflow = 'hidden'; sh.scrollTop = 0; return;
+  }
+  const tot = s.exos.reduce((a, e, j) => a + isoDone(e, j), 0), cib = s.exos.reduce((a, e) => a + e.cible, 0);
+  sh.innerHTML = `
+  <div class="sheet-h"><div class="wrap in"><button class="btn ghost" data-act="close">‹ Fermer</button><span class="saved" id="saved">${savedTxt}</span></div></div>
+  <div class="wrap sheet-b">
+    <div><span class="eyebrow">Prévention · ${fDay(s.date)}</span><h2>${esc(s.titre || 'EVPA')}</h2>
+      <span class="small muted">Total <b id="prev-tot" class="num">${mmss(tot)}</b> / ${mmss(cib)} · ${s.exos.filter(e => e.ok).length}/${s.exos.length} terminés</span></div>
+    <span class="small muted">Touche un exercice pour ouvrir son chrono, dans l'ordre que tu veux.</span>
+    <div class="plist">${s.exos.map((e, i) => { const d = isoDone(e, i), run = isoRun && isoRun.ei === i; return `<button class="prow ${e.ok ? 'ok' : ''} ${run ? 'run' : ''}" data-act="focus" data-ei="${i}">
+      <span class="pn">${esc(e.nom)}</span><span class="pt"><span id="iso-t-${i}">${mmss(d)}</span> <small>/ ${mmss(e.cible)}</small></span>
+      <span class="pbar"><span id="iso-b-${i}" style="width:${Math.min(100, d / e.cible * 100)}%"></span></span></button>`; }).join('')}</div>
+    ${data.seances.has(draftId) ? `<button class="btn ghost sm" data-act="del" style="align-self:center">${confirmDel === 'all' ? 'Toucher encore pour supprimer la séance' : 'Supprimer la séance'}</button>` : ''}
+  </div>
+  <div class="sheet-f"><div class="wrap in">
+    ${s.statut === 'faite' ? `<button class="btn" data-act="reopen">Rouvrir</button><button class="btn primary" data-act="close">Terminé</button>` : `<button class="btn" data-act="close">Enregistrer</button><button class="btn primary" data-act="finish">Séance terminée ✓</button>`}
+  </div></div>`;
+  sh.hidden = false; document.body.style.overflow = 'hidden'; sh.scrollTop = keep;
+}
+function isoStart(i) {
+  isoPause(true); isoRun = { ei: i, t0: Date.now(), id: draftId };
+  try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume && actx.resume(); } catch (e) {}
+  try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(l => { isoLock = l; }).catch(() => {}); } catch (e) {}
+  clearInterval(isoInt); isoInt = setInterval(isoTick, 250); renderSheet();
+}
+function isoPause(silent) {
+  if (!isoRun) return; clearInterval(isoInt);
+  if (draft && draftId === isoRun.id) { const e = draft.exos[isoRun.ei]; if (e) { e.fait = Math.round(((e.fait || 0) + (Date.now() - isoRun.t0) / 1000) * 10) / 10; if (e.fait >= e.cible) e.ok = true; } }
+  isoRun = null; try { if (isoLock) isoLock.release(); } catch (e) {} isoLock = null;
+  if (draft) { persistDraft(); if (!silent) renderSheet(); }
+}
+function isoTick() {
+  if (!isoRun || !draft) return; const i = isoRun.ei; const e = draft.exos[i]; if (!e) return isoPause(true);
+  const d = isoDone(e, i); const t = $('#iso-t-' + i), b = $('#iso-b-' + i);
+  if (t) t.textContent = mmss(d); if (b) b.style.width = Math.min(100, d / e.cible * 100) + '%';
+  const rg = $('#iso-r-' + i); if (rg) rg.style.strokeDashoffset = RING_C * (1 - Math.min(1, d / e.cible));
+  const tot = $('#prev-tot'); if (tot) tot.textContent = mmss(draft.exos.reduce((a, x, j) => a + isoDone(x, j), 0));
+  if (d >= e.cible && !e.ok) { beep(); isoPause(); toast((e.nom || 'Exercice') + ' : objectif atteint ✓'); }
+}
 function stepper(field, val, step, label) {
   return `<div class="stepper"><button data-step="${field}" data-d="-${step}" aria-label="${label} moins">−</button><input inputmode="decimal" data-f="${field}" value="${val ?? ''}" aria-label="${label}"><button data-step="${field}" data-d="${step}" aria-label="${label} plus">+</button></div>`;
 }
 function renderSheet(first) {
   const sh = $('#sheet'); const keep = first ? 0 : sh.scrollTop;
   const s = draft;
-  const tpls = [...data.modeles.entries()];
+  if (s.type === 'Prévention' && (s.exos || []).length && s.exos.every(e => e.mode === 'temps')) return renderPrev(first);
+  const tpls = allTpls(); const prev = true;
   const exos = (s.exos || []).map((e, i) => {
     const lp = lastPerf(e.nom || '', s.date, draftId);
+    if (e.mode === 'temps') return isoCard(e, i, lp);
     return `<div class="exo" data-ei="${i}">
       <div class="exo-h"><input class="inp grow" list="exo-list" data-f="nom" value="${esc(e.nom)}" placeholder="Exercice (ex. Squat)" aria-label="Nom de l'exercice">
         ${i > 0 ? `<button class="icon-btn" data-act="up" aria-label="Monter l'exercice">↑</button>` : ''}
@@ -672,8 +825,8 @@ function renderSheet(first) {
         <div class="set-h"><span>#</span><span>Reps</span><span>Charge kg</span><span>Fait</span></div>
         ${(e.series || []).map((st, j) => `<div class="set ${st.ok ? 'done' : ''}" data-si="${j}"><span class="n">${j + 1}</span>${stepper('r', st.r, 1, 'Répétitions série ' + (j + 1))}${stepper('k', st.k, 2.5, 'Charge série ' + (j + 1))}<button class="okbtn" data-act="ok" aria-pressed="${!!st.ok}" aria-label="Série ${j + 1} faite"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg></button></div>`).join('')}
       </div>
-      <div class="exo-f"><button class="btn sm" data-act="add-set">+ Série</button>${(e.series || []).length ? `<button class="btn sm" data-act="rm-set">− Série</button>` : ''}${lp && !(e.series || []).length ? `<button class="btn sm" data-act="copy-last">Reprendre la dernière fois</button>` : ''}</div>
-      <input class="inp" data-f="note" value="${esc(e.note)}" placeholder="Note (tempo, sensation, technique…)" aria-label="Note de l'exercice">
+      <div class="row small muted" style="gap:6px"><span style="font-weight:600">RPE</span><div class="seg mini grow">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => `<button data-erpe="${n}" aria-pressed="${e.rpe === n}" aria-label="RPE ${n}">${n}</button>`).join('')}</div></div>
+      <div class="exo-f"><button class="btn sm" data-act="add-set">+ Série</button>${(e.series || []).length ? `<button class="btn sm" data-act="rm-set">− Série</button>` : ''}${lp && !(e.series || []).length ? `<button class="btn sm" data-act="copy-last">Reprendre la dernière fois</button>` : ''}${!(e.series || []).length ? `<button class="btn sm" data-act="to-time">⏱ Au temps</button>` : ''}</div>
     </div>`;
   }).join('');
 
@@ -686,14 +839,14 @@ function renderSheet(first) {
     ${!data.seances.has(draftId) && !(s.exos || []).length && tpls.length ? `<div><span class="eyebrow">Partir d'un modèle</span><div class="tpl-list" style="margin-top:6px">${tpls.map(([id, m]) => `<button class="btn sm" data-tpl="${esc(id)}">${esc(m.titre)}</button>`).join('')}</div></div>` : ''}
     ${exos || '<div class="empty">Ajoute ton premier exercice. Les charges de ta dernière séance s\'affichent automatiquement.</div>'}
     <button class="btn" data-act="add-exo">+ Ajouter un exercice</button>
-    <div class="card">
+    ${prev ? '' : `    <div class="card">
       <h3>Bilan de séance</h3>
       <label class="f">Durée (minutes)${stepperSimple('duree', s.duree, 5)}</label>
       <div class="f" style="display:flex;flex-direction:column;gap:6px"><span class="small muted" style="font-weight:600">RPE : effort perçu (1 très facile → 10 maximal)</span>
         <div class="seg">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => `<button data-rpe="${n}" aria-pressed="${s.rpe === n}">${n}</button>`).join('')}</div></div>
       ${s.rpe && s.duree ? `<span class="small muted">Charge de séance : <b>${nf(s.rpe * s.duree, 0)} UA</b> · tonnage ${nf(tonnage(s), 0)} kg</span>` : ''}
       <label class="f">Notes<textarea class="inp" id="s-notes" data-sf="notes" placeholder="Sensations, douleurs, consignes du coach…">${esc(s.notes)}</textarea></label>
-    </div>
+    </div>`}
     <div class="card">
       <h3>Plus d'actions</h3>
       <button class="btn" data-act="save-tpl">Enregistrer comme modèle</button>
@@ -733,23 +886,54 @@ sheet.addEventListener('click', ev => {
     b.parentElement.querySelector('input').value = st[f]; touch(); return;
   }
   if (b.dataset.sstep) { const f = b.dataset.sstep; draft[f] = Math.max(0, (+draft[f] || 0) + parseFloat(b.dataset.d)); $('#s-' + f).value = draft[f]; touch(); return; }
+  if (b.dataset.erpe) { e.rpe = e.rpe === +b.dataset.erpe ? null : +b.dataset.erpe; persistDraft(); renderSheet(); return; }
   if (b.dataset.rpe) { draft.rpe = +b.dataset.rpe; persistDraft(); renderSheet(); return; }
-  if (b.dataset.tpl) { const m = data.modeles.get(b.dataset.tpl); if (m) { const keepDate = draft.date; openSession(null, keepDate, m); } return; }
+  if (b.dataset.tpl) { const m = getTpl(b.dataset.tpl); if (m) { const keepDate = draft.date; openSession(null, keepDate, m); } return; }
+  if ((act === 'up' || act === 'del-exo') && isoRun) isoPause(true);
   switch (act) {
     case 'close': closeSheet(); break;
+    case 'focus': isoFocus = ei; renderSheet(true); break;
+    case 'unfocus': isoFocus = null; renderSheet(true); break;
+    case 'iso-go': if (isoRun && isoRun.ei === ei) isoPause(); else isoStart(ei); break;
+    case 'iso-adj': { const wasRun = isoRun && isoRun.ei === ei; if (wasRun) isoPause(true); e.fait = Math.max(0, (e.fait || 0) + +b.dataset.d); e.ok = e.fait >= e.cible; if (wasRun && !e.ok) isoStart(ei); else { persistDraft(); renderSheet(); } break; }
+    case 'iso-cible': e.cible = Math.max(15, (e.cible || 0) + +b.dataset.d); e.ok = (e.fait || 0) >= e.cible; persistDraft(); renderSheet(); break;
+    case 'iso-reset': if (isoRun && isoRun.ei === ei) isoPause(true); e.fait = 0; e.ok = false; persistDraft(); renderSheet(); break;
+    case 'to-time': e.mode = 'temps'; e.cible = e.cible || 120; e.fait = 0; e.ok = false; e.series = []; persistDraft(); renderSheet(); break;
+    case 'to-reps': delete e.mode; delete e.cible; delete e.fait; e.ok = false; persistDraft(); renderSheet(); break;
     case 'add-exo': draft.exos.push({ nom: '', series: [], note: '' }); persistDraft(); renderSheet(); setTimeout(() => { const ins = sheet.querySelectorAll('[data-f="nom"]'); ins[ins.length - 1]?.focus(); }, 30); break;
     case 'up': [draft.exos[ei - 1], draft.exos[ei]] = [draft.exos[ei], draft.exos[ei - 1]]; persistDraft(); renderSheet(); break;
     case 'del-exo': if (confirmDel === 'e' + ei) { draft.exos.splice(ei, 1); confirmDel = null; persistDraft(); } else confirmDel = 'e' + ei; renderSheet(); break;
     case 'add-set': { const last = e.series[e.series.length - 1]; e.series.push(last ? { r: last.r, k: last.k, ok: false } : { r: 5, k: 0, ok: false }); persistDraft(); renderSheet(); break; }
     case 'rm-set': e.series.pop(); persistDraft(); renderSheet(); break;
     case 'copy-last': { const lp = lastPerf(e.nom || '', draft.date, draftId); if (lp) e.series = lp.e.series.map(x => ({ r: x.r, k: x.k, ok: false })); persistDraft(); renderSheet(); break; }
-    case 'ok': { const si = +b.closest('[data-si]').dataset.si; const st = e.series[si]; st.ok = !st.ok; b.setAttribute('aria-pressed', st.ok); b.closest('.set').classList.toggle('done', st.ok); persistDraft(); if (st.ok) startRest(); break; }
-    case 'finish': draft.statut = 'faite'; if (!draft.rpe) { persistDraft(); renderSheet(); toast('Séance terminée. Indique ton RPE pour suivre ta charge.'); setTimeout(() => sheet.querySelector('[data-rpe]')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50); } else { persistDraft(); closeSheet(); toast('Séance enregistrée 💪'); } break;
+    case 'ok': { const si = +b.closest('[data-si]').dataset.si; const st = e.series[si]; st.ok = !st.ok; b.setAttribute('aria-pressed', st.ok); b.closest('.set').classList.toggle('done', st.ok); persistDraft(); break; }
+    case 'finish': draft.statut = 'faite'; persistDraft(); closeSheet(); toast('Séance enregistrée 💪'); break;
     case 'reopen': draft.statut = 'prevue'; persistDraft(); renderSheet(); break;
-    case 'save-tpl': { const id = 'm' + Date.now().toString(36); persist('modeles', id, { titre: draft.titre || draft.type, type: draft.type, duree: draft.duree, exos: clone(draft.exos).map(x => ({ ...x, series: (x.series || []).map(s => ({ r: s.r, k: s.k, ok: false })) })) }); toast('Modèle enregistré'); break; }
-    case 'dup': { const d = $('#dup-date').value; if (!d) return; const c = clone(draft); c.date = d; c.statut = 'prevue'; c.rpe = null; (c.exos || []).forEach(x => (x.series || []).forEach(s => s.ok = false)); c.maj = Date.now(); persist('seances', uid(), c); toast('Copiée au ' + fDay(d)); break; }
+    case 'save-tpl': { const id = 'm' + Date.now().toString(36); persist('modeles', id, { titre: draft.titre || draft.type, type: draft.type, duree: draft.duree, exos: (() => { const x = clone(draft.exos); resetExos(x); return x; })() }); toast('Modèle enregistré'); break; }
+    case 'dup': { const d = $('#dup-date').value; if (!d) return; const c = clone(draft); c.date = d; c.statut = 'prevue'; c.rpe = null; resetExos(c.exos); c.maj = Date.now(); persist('seances', uid(), c); toast('Copiée au ' + fDay(d)); break; }
     case 'del': if (confirmDel === 'all') { removeDoc('seances', draftId); draft = null; saveT = null; $('#sheet').hidden = true; document.body.style.overflow = ''; render(); toast('Séance supprimée'); } else { confirmDel = 'all'; renderSheet(); } break;
   }
+});
+
+/* ---------- Rappel trigger points (avant l'EVPA) ---------- */
+let trigAsk = false;
+function openTrig() {
+  trigAsk = true; const sh = $('#sheet');
+  sh.innerHTML = `
+  <div class="sheet-h"><div class="wrap in"><button class="btn ghost" data-tact="cancel">‹ Annuler</button><span class="saved">EVPA</span></div></div>
+  <div class="wrap focus">
+    <span style="font-size:56px;line-height:1" aria-hidden="true">⚠️</span>
+    <span class="eyebrow">Attention</span>
+    <h1>Avant de commencer, fais tes trigger points</h1>
+    <span class="muted">Tibia · Moyen fessier</span>
+    <button class="btn huge" data-tact="go" style="background:var(--good);color:var(--accent-ink)">C'est fait !</button>
+  </div>`;
+  sh.hidden = false; document.body.style.overflow = 'hidden'; sh.scrollTop = 0;
+}
+sheet.addEventListener('click', ev => {
+  const b = ev.target.closest('button'); if (!b || !trigAsk) return;
+  if (b.dataset.tact === 'cancel') { trigAsk = false; sheet.hidden = true; sheet.innerHTML = ''; document.body.style.overflow = ''; }
+  if (b.dataset.tact === 'go') { trigAsk = false; openSession(null, todayS(), MODELES_INTEGRES['int-evpa']); }
 });
 
 /* ---------- Feuille Forme du jour ---------- */
@@ -818,6 +1002,8 @@ $('#view').addEventListener('click', ev => {
   if (b.dataset.goto) { tab = b.dataset.goto; setPref('tab', tab); render(); window.scrollTo(0, 0); return; }
   if (b.dataset.week != null) { const n = +b.dataset.week; weekOf = n === 0 ? monday(todayS()) : addDays(weekOf, 7 * n); render(); return; }
   if (b.dataset.deltpl) { if (b.classList.contains('confirm')) { removeDoc('modeles', b.dataset.deltpl); render(); } else { b.classList.add('confirm'); b.textContent = 'Supprimer ?'; } return; }
+  if (b.dataset.evper) { setPref('evpaPer', b.dataset.evper); render(); return; }
+  if (b.dataset.act === 'evpa') { const ex = seancesList().find(x => x.date === todayS() && x.src === 'int-evpa'); if (ex) openSession(ex.id); else openTrig(); return; }
   if (b.dataset.rest) { setPref('rest', +b.dataset.rest); render(); toast('Repos par défaut : ' + b.textContent); return; }
   switch (b.dataset.act) {
     case 'new': openSession(null, b.dataset.date); break;
@@ -828,12 +1014,13 @@ $('#view').addEventListener('click', ev => {
     case 'oura-off': setPref('ouraAuth', null); render(); toast('Oura déconnectée'); break;
     case 'copy-week': {
       const src = seancesList().filter(s => s.date >= weekOf && s.date <= addDays(weekOf, 6));
-      src.forEach(s => { const c = clone(s); delete c.id; c.date = addDays(s.date, 7); c.statut = 'prevue'; c.rpe = null; (c.exos || []).forEach(x => (x.series || []).forEach(st => st.ok = false)); c.maj = Date.now(); persist('seances', uid(), c); });
+      src.forEach(s => { const c = clone(s); delete c.id; c.date = addDays(s.date, 7); c.statut = 'prevue'; c.rpe = null; resetExos(c.exos); c.maj = Date.now(); persist('seances', uid(), c); });
       weekOf = addDays(weekOf, 7); render(); toast(src.length + ' séance(s) copiée(s) sur la semaine suivante'); break;
     }
   }
 });
 $('#view').addEventListener('change', async ev => {
+  if (ev.target.id === 'evpa-exo') { setPref('evpaExo', ev.target.value); render(); }
   if (ev.target.id === 'prog-exo') { progExo = ev.target.value; setPref('exo', progExo); render(); }
   if (ev.target.id === 'imp') {
     const file = ev.target.files[0]; if (!file) return;
