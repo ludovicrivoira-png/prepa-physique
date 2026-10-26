@@ -279,8 +279,8 @@ let toastT;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2600); }
 
 /* ---------- Stockage : base de l'artefact + copie locale de secours ---------- */
-const COLS = ['seances', 'forme', 'modeles'];
-const data = { seances: new Map(), forme: new Map(), modeles: new Map() };
+const COLS = ['seances', 'forme', 'modeles', 'oura'];
+const data = { seances: new Map(), forme: new Map(), modeles: new Map(), oura: new Map() };
 let db = null, mode = 'loading';
 const LS = 'carnet-decathlon-v1';
 function cacheLoad() { try { const o = JSON.parse(localStorage.getItem(LS) || '{}'); COLS.forEach(c => data[c] = new Map(Object.entries(o[c] || {}))); } catch (e) {} }
@@ -315,7 +315,17 @@ const seancesList = () => [...data.seances.entries()].map(([id, s]) => ({ id, ..
 const setCounts = (s, st) => st.ok || s.statut === 'faite';
 function tonnage(s) { let t = 0; (s.exos || []).forEach(e => (e.series || []).forEach(st => { if (setCounts(s, st)) t += (+st.r || 0) * (+st.k || 0); })); return t; }
 const srpe = s => (s.statut === 'faite' && s.rpe && s.duree) ? s.rpe * s.duree : 0;
-function readiness(f) { if (!f) return null; const v = ((f.qs - 1) + (5 - f.fat) + (5 - f.cour) + (f.mot - 1)) / 16; return Math.round(v * 100); }
+function readiness(f, o) {
+  const subj = f ? ((5 - f.fat) + (5 - f.cour) + (f.mot - 1)) / 12 * 100 : null;
+  if (o && o.readiness != null) return subj == null ? o.readiness : Math.round(0.5 * o.readiness + 0.5 * subj);
+  if (!f) return null; const v = ((f.qs - 1) + (5 - f.fat) + (5 - f.cour) + (f.mot - 1)) / 16; return Math.round(v * 100);
+}
+const formeDay = d => readiness(data.forme.get(d), data.oura.get(d));
+const fmtH = h => Math.floor(h) + ' h ' + String(Math.round((h % 1) * 60)).padStart(2, '0');
+function hrvBase(d) {
+  const v = []; for (let i = 1; i <= 30; i++) { const o = data.oura.get(addDays(d, -i)); if (o && o.hrv) v.push(o.hrv); }
+  return v.length >= 3 ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null;
+}
 function readyState(r) { return r >= 70 ? ['good', 'Prêt'] : r >= 45 ? ['warn', 'Moyen'] : ['bad', 'À ménager']; }
 function loadBetween(a, b) { return seancesList().filter(s => s.date >= a && s.date <= b).reduce((t, s) => t + srpe(s), 0); }
 function acwr() {
@@ -334,6 +344,66 @@ function summarize(e) {
   const same = ser.every(x => x.r === ser[0].r && x.k === ser[0].k);
   if (same) return ser.length + '×' + ser[0].r + (ser[0].k ? ' · ' + nf(ser[0].k) + ' kg' : '');
   return ser.map(x => x.r + (x.k ? '@' + nf(x.k) : '')).join(' / ') + (ser.some(x => x.k) ? ' kg' : '');
+}
+
+/* ---------- Oura Ring (via le relais Cloudflare) ---------- */
+const RELAIS = 'https://prepa-physique-oura.ludovic-rivoira.workers.dev';
+let ouraBusy = false;
+const ouraAuth = () => pref('ouraAuth', null);
+function ouraFromHash() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get('oura_access')) {
+    setPref('ouraAuth', { access: h.get('oura_access'), refresh: h.get('oura_refresh'), exp: Date.now() + (+h.get('oura_expires') || 86400) * 1000 });
+    history.replaceState(null, '', location.pathname); toast('Oura connectée ✓'); return;
+  }
+  if (h.get('oura_error')) { history.replaceState(null, '', location.pathname); toast('Connexion Oura annulée ou refusée.'); }
+}
+async function ouraToken() {
+  let a = ouraAuth(); if (!a) return null;
+  if (Date.now() < a.exp - 120000) return a.access;
+  const r = await fetch(RELAIS + '/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: a.refresh }) });
+  if (!r.ok) { if (r.status === 401) { setPref('ouraAuth', null); render(); toast('Reconnecte Oura dans l\'onglet Données.'); } return null; }
+  const j = await r.json();
+  a = { access: j.access_token, refresh: j.refresh_token || a.refresh, exp: Date.now() + (j.expires_in || 86400) * 1000 }; setPref('ouraAuth', a);
+  return a.access;
+}
+async function ouraGet(what, start, end, tok) {
+  const r = await fetch(`${RELAIS}/api/${what}?start_date=${start}&end_date=${end}`, { headers: { Authorization: 'Bearer ' + tok } });
+  if (!r.ok) throw new Error(what + ' ' + r.status);
+  return (await r.json()).data || [];
+}
+async function syncOura(force) {
+  if (ouraBusy || !ouraAuth()) return;
+  if (!force && Date.now() - pref('ouraSync', 0) < 15 * 60000) return;
+  ouraBusy = true;
+  try {
+    const tok = await ouraToken(); if (!tok) return;
+    const start = addDays(todayS(), -30), end = addDays(todayS(), 1);
+    const [sleeps, ready, dsleep] = await Promise.all([ouraGet('sleep', start, end, tok), ouraGet('daily_readiness', start, end, tok), ouraGet('daily_sleep', start, end, tok)]);
+    const days = {}; const get = d => days[d] || (days[d] = {});
+    // Nuit principale = la plus longue période de sommeil attribuée au jour (le jour du réveil)
+    sleeps.forEach(x => {
+      if (x.type !== 'long_sleep' && x.type !== 'sleep') return;
+      const o = get(x.day); const dur = x.total_sleep_duration || 0; if (o._dur != null && o._dur >= dur) return;
+      o._dur = dur; o.sommeil = dur ? dur / 3600 : null; o.hrv = x.average_hrv != null ? Math.round(x.average_hrv) : null; o.fc = x.lowest_heart_rate || null; o.efficacite = x.efficiency || null;
+    });
+    ready.forEach(x => { const o = get(x.day); o.readiness = x.score; if (x.temperature_deviation != null) o.temp = Math.round(x.temperature_deviation * 10) / 10; });
+    dsleep.forEach(x => { get(x.day).scoreSommeil = x.score; });
+    Object.entries(days).forEach(([d, o]) => { delete o._dur; data.oura.set(d, o); });
+    cacheSave(); setPref('ouraSync', Date.now()); render();
+    if (force) toast('Données Oura à jour ✓');
+  } catch (e) { if (force) toast('Oura injoignable pour le moment.'); }
+  finally { ouraBusy = false; }
+}
+function ouraCard(o, d) {
+  const base = hrvBase(d);
+  return `<div class="card"><div class="row" style="justify-content:space-between"><b>Ta nuit (Oura)</b>${o.readiness != null ? `<span class="pill ${readyState(o.readiness)[0]}">Récupération ${o.readiness}</span>` : ''}</div>
+    <div class="stats">
+      <div class="stat"><span class="eyebrow">Sommeil</span><span class="v">${o.sommeil != null ? fmtH(o.sommeil) : '–'}</span><span class="small muted">${o.scoreSommeil != null ? 'score ' + o.scoreSommeil : ''}</span></div>
+      <div class="stat"><span class="eyebrow">HRV</span><span class="v">${o.hrv ?? '–'}<small>ms</small></span><span class="small muted">${base ? 'ta moyenne : ' + base + ' ms' : ''}</span></div>
+      <div class="stat"><span class="eyebrow">FC repos</span><span class="v">${o.fc ?? '–'}<small>bpm</small></span></div>
+      <div class="stat"><span class="eyebrow">Température</span><span class="v">${o.temp != null ? (o.temp > 0 ? '+' : '') + nf(o.temp) : '–'}<small>°C</small></span><span class="small muted">écart à ta norme</span></div>
+    </div></div>`;
 }
 
 /* ---------- Navigation ---------- */
@@ -362,7 +432,7 @@ function sessBtn(s, sub) {
 
 /* ---------- Vue Aujourd'hui ---------- */
 function viewToday() {
-  const t = todayS(); const f = data.forme.get(t); const r = readiness(f);
+  const t = todayS(); const f = data.forme.get(t); const o = data.oura.get(t); const r = readiness(f, o);
   const all = seancesList();
   const todays = all.filter(s => s.date === t);
   const upcoming = all.filter(s => s.date > t && s.statut === 'prevue').sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3);
@@ -375,16 +445,19 @@ function viewToday() {
   const ratio = acwr();
   const ratioPill = ratio == null ? '<span class="pill neutral">4 sem. de données requises</span>' : ratio < 0.8 ? '<span class="pill warn">Sous-charge</span>' : ratio <= 1.3 ? '<span class="pill good">Zone optimale</span>' : ratio <= 1.5 ? '<span class="pill warn">Vigilance</span>' : '<span class="pill bad">Risque élevé</span>';
 
+  const base = hrvBase(t);
+  const ouraLine = o ? `<div class="small">Oura : ${[o.sommeil != null ? fmtH(o.sommeil) + ' de sommeil' : '', o.hrv ? 'HRV ' + o.hrv + ' ms' + (base ? ' (moy. ' + base + ')' : '') : '', o.fc ? 'FC repos ' + o.fc : '', o.readiness != null ? 'récupération ' + o.readiness : ''].filter(Boolean).join(' · ')}</div>` : '';
   let forme;
-  if (f) {
+  if (f || o) {
     const [cls, lab] = readyState(r);
-    forme = `<div class="lanes"><span class="eyebrow">Forme du jour</span>
-      <div class="ready"><span class="big num">${r}</span><div class="grow"><span class="pill ${cls}" style="background:var(--accent-ink)">${lab}</span><div class="small" style="margin-top:6px">${f.sommeil ? nf(f.sommeil) + ' h de sommeil · ' : ''}fatigue ${f.fat}/5 · courbatures ${f.cour}/5${f.poids ? ' · ' + nf(f.poids) + ' kg' : ''}</div></div></div>
-      ${f.douleur ? `<div class="small">Douleur : ${esc(f.douleur)}</div>` : ''}
-      <button class="btn on-accent sm" data-act="forme" style="align-self:flex-start">Modifier</button></div>`;
+    forme = `<div class="lanes"><span class="eyebrow">Forme du jour${o ? ' · Oura' : ''}</span>
+      <div class="ready"><span class="big num">${r}</span><div class="grow"><span class="pill ${cls}" style="background:var(--accent-ink)">${lab}</span>${f ? `<div class="small" style="margin-top:6px">${!o && f.sommeil ? nf(f.sommeil) + ' h de sommeil · ' : ''}fatigue ${f.fat}/5 · courbatures ${f.cour}/5 · motivation ${f.mot}/5${f.poids ? ' · ' + nf(f.poids) + ' kg' : ''}</div>` : ''}</div></div>
+      ${ouraLine}
+      ${f && f.douleur ? `<div class="small">Douleur : ${esc(f.douleur)}</div>` : ''}
+      <button class="btn on-accent sm" data-act="forme" style="align-self:flex-start">${f ? 'Modifier' : 'Ajouter mon ressenti (10 s)'}</button></div>`;
   } else {
     forme = `<div class="lanes"><span class="eyebrow">Forme du jour</span><h2>Comment tu te sens ce matin ?</h2>
-      <div class="small">Sommeil, fatigue, courbatures, motivation : 30 secondes pour calculer ton indice de forme.</div>
+      <div class="small">${ouraAuth() ? 'Ta nuit Oura n\'est pas encore disponible. Remplis ton ressenti en attendant.' : 'Sommeil, fatigue, courbatures, motivation : 30 secondes pour calculer ton indice de forme.'}</div>
       <button class="btn on-accent" data-act="forme" style="align-self:flex-start">Remplir ma forme</button></div>`;
   }
 
@@ -424,7 +497,7 @@ function viewPlan() {
     const f = data.forme.get(d);
     days += `<div class="day ${d === t ? 'today' : ''}">
       <div class="day-h"><span class="d">${fDay(d, { weekday: 'long', day: 'numeric' })}</span>
-        <span class="row">${f ? `<span class="pill ${readyState(readiness(f))[0]}">Forme ${readiness(f)}</span>` : ''}<button class="icon-btn" data-act="new" data-date="${d}" aria-label="Ajouter une séance le ${fDay(d)}">+</button></span></div>
+        <span class="row">${formeDay(d) != null ? `<span class="pill ${readyState(formeDay(d))[0]}">Forme ${formeDay(d)}</span>` : ''}<button class="icon-btn" data-act="new" data-date="${d}" aria-label="Ajouter une séance le ${fDay(d)}">+</button></span></div>
       ${ss.map(s => `<button class="chip-s ${s.statut}" data-open="${esc(s.id)}"><span class="dot"></span><span class="grow">${esc(s.titre || s.type)}</span><span class="small muted">${s.statut === 'faite' ? (s.rpe ? 'RPE ' + s.rpe : 'Faite') : (s.exos || []).length + ' exo.'}</span></button>`).join('')}
     </div>`;
   }
@@ -476,8 +549,8 @@ function viewProg() {
   const wk0 = monday(todayS()); const bars = [];
   for (let i = 7; i >= 0; i--) { const a = addDays(wk0, -7 * i); bars.push({ label: fShort(a), v: loadBetween(a, addDays(a, 6)), cur: i === 0 }); }
   // forme 30 j
-  const fpts = [], ppts = [];
-  for (let i = 29; i >= 0; i--) { const d = addDays(todayS(), -i); const f = data.forme.get(d); if (f) { fpts.push({ t: parseD(d).getTime(), y: readiness(f), d }); if (f.poids) ppts.push({ t: parseD(d).getTime(), y: +f.poids, d }); } }
+  const fpts = [], ppts = [], hpts = [];
+  for (let i = 29; i >= 0; i--) { const d = addDays(todayS(), -i); const f = data.forme.get(d); const o = data.oura.get(d); const tt = parseD(d).getTime(); const fr = readiness(f, o); if (fr != null) fpts.push({ t: tt, y: fr, d }); if (f && f.poids) ppts.push({ t: tt, y: +f.poids, d }); if (o && o.hrv) hpts.push({ t: tt, y: o.hrv, d }); }
 
   return `
   <section><h2>Par exercice</h2>${exoBlock}</section>
@@ -486,6 +559,7 @@ function viewProg() {
     <span class="small muted">Une hausse de plus de 10 à 15 % d'une semaine à l'autre augmente le risque de blessure.</span></div></section>
   <section><div class="sec-head"><h2>Indice de forme</h2><span class="small muted">30 derniers jours</span></div>
     <div class="card"><div class="chart">${lineChart(fpts, '', [0, 100])}</div></div></section>
+  ${hpts.length ? `<section><div class="sec-head"><h2>HRV nocturne</h2><span class="small muted">30 derniers jours · Oura</span></div><div class="card"><div class="chart">${lineChart(hpts, 'ms')}</div><span class="small muted">Une HRV nettement sous ta moyenne signale souvent une fatigue à surveiller : allège la séance ce jour-là.</span></div></section>` : ''}
   ${ppts.length ? `<section><div class="sec-head"><h2>Poids de corps</h2><span class="small muted">30 derniers jours</span></div><div class="card"><div class="chart">${lineChart(ppts, 'kg')}</div></div></section>` : ''}
   <section><h2>Historique</h2>
     ${all.length ? all.slice(-15).reverse().map(s => sessBtn(s, fShort(s.date) + ' · ' + (tonnage(s) ? nf(tonnage(s), 0) + ' kg · ' : ''))).join('') : '<div class="empty">Tes séances terminées apparaîtront ici.</div>'}
@@ -540,6 +614,16 @@ function viewData() {
       <span class="small muted">La restauration ajoute ou remplace les éléments du fichier, sans effacer le reste.</span>
     </div>
     <div class="backup-warn"><span class="grow">Si tu supprimes l'app de l'écran d'accueil, ses données sont effacées. Sauvegarde avant.</span></div>
+  </section>
+  <section><h2>Oura Ring</h2>
+    <div class="card">
+      ${ouraAuth() ? `<span class="pill good" style="align-self:flex-start">Connectée</span>
+        <span class="small">Ton sommeil, ta HRV, ta FC de repos et ta récupération arrivent automatiquement dans ta forme du jour.${pref('ouraSync', 0) ? ' Dernière mise à jour : ' + new Date(pref('ouraSync', 0)).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + '.' : ''}</span>
+        <button class="btn" data-act="oura-sync">Mettre à jour maintenant</button>
+        <button class="btn ghost sm" data-act="oura-off" style="align-self:flex-start">Déconnecter Oura</button>`
+      : `<span class="small">Connecte ta bague pour remplir automatiquement ton sommeil, ta HRV et ta récupération chaque matin.</span>
+        <a class="btn primary" href="${RELAIS}/login">Connecter Oura</a>`}
+    </div>
   </section>
   <section><h2>Réglages</h2>
     <div class="card">
@@ -672,16 +756,17 @@ sheet.addEventListener('click', ev => {
 let fDraft = null, fDate = null;
 function openForme(date) {
   fDate = date; fDraft = clone(data.forme.get(date) || { qs: 3, fat: 2, cour: 2, mot: 4, sommeil: 8, poids: pref('poids', null), douleur: '' });
+  const oD = data.oura.get(date); if (oD && oD.sommeil != null && !data.forme.has(date)) fDraft.sommeil = Math.round(oD.sommeil * 10) / 10;
   renderForme();
 }
 function renderForme() {
-  const sh = $('#sheet'); const r = readiness(fDraft); const [cls, lab] = readyState(r);
+  const sh = $('#sheet'); const oD = data.oura.get(fDate); const r = readiness(fDraft, oD); const [cls, lab] = readyState(r);
   sh.innerHTML = `
   <div class="sheet-h"><div class="wrap in"><button class="btn ghost" data-fact="close">‹ Annuler</button><span class="saved">${fDay(fDate)}</span></div></div>
   <div class="wrap sheet-b">
     <div class="lanes"><span class="eyebrow">Indice de forme</span><div class="ready"><span class="big num" id="f-score">${r}</span><span class="pill ${cls}" id="f-lab" style="background:var(--accent-ink)">${lab}</span></div></div>
-    <div class="card"><label class="f">Heures de sommeil${`<div class="stepper" style="max-width:200px"><button data-fstep="sommeil" data-d="-0.5" aria-label="Moins">−</button><input inputmode="decimal" id="f-sommeil" data-ff="sommeil" value="${fDraft.sommeil ?? ''}"><button data-fstep="sommeil" data-d="0.5" aria-label="Plus">+</button></div>`}</label></div>
-    ${FORME_ITEMS.map(it => `<div class="card"><div class="row" style="justify-content:space-between"><b>${it.label}</b><span class="small muted">1 ${it.lo} · 5 ${it.hi}</span></div>
+    ${oD ? ouraCard(oD, fDate) : ''}<div class="card" ${oD ? 'hidden' : ''}><label class="f">Heures de sommeil${`<div class="stepper" style="max-width:200px"><button data-fstep="sommeil" data-d="-0.5" aria-label="Moins">−</button><input inputmode="decimal" id="f-sommeil" data-ff="sommeil" value="${fDraft.sommeil ?? ''}"><button data-fstep="sommeil" data-d="0.5" aria-label="Plus">+</button></div>`}</label></div>
+    ${FORME_ITEMS.filter(it => !(oD && it.k === 'qs')).map(it => `<div class="card"><div class="row" style="justify-content:space-between"><b>${it.label}</b><span class="small muted">1 ${it.lo} · 5 ${it.hi}</span></div>
       <div class="seg">${[1, 2, 3, 4, 5].map(n => `<button style="flex:1" data-fk="${it.k}" data-v="${n}" aria-pressed="${fDraft[it.k] === n}">${n}</button>`).join('')}</div></div>`).join('')}
     <div class="card">
       <label class="f">Poids de corps (kg, facultatif)<input class="inp" inputmode="decimal" data-ff="poids" value="${fDraft.poids ?? ''}" placeholder="ex. 82,5"></label>
@@ -691,7 +776,7 @@ function renderForme() {
   <div class="sheet-f"><div class="wrap in"><button class="btn primary" data-fact="save">Enregistrer ma forme</button></div></div>`;
   sh.hidden = false; document.body.style.overflow = 'hidden';
 }
-function updateScore() { const r = readiness(fDraft); const [cls, lab] = readyState(r); $('#f-score').textContent = r; const l = $('#f-lab'); l.className = 'pill ' + cls; l.textContent = lab; }
+function updateScore() { const r = readiness(fDraft, data.oura.get(fDate)); const [cls, lab] = readyState(r); $('#f-score').textContent = r; const l = $('#f-lab'); l.className = 'pill ' + cls; l.textContent = lab; }
 sheet.addEventListener('click', ev => {
   const b = ev.target.closest('button'); if (!b || !fDraft) return;
   if (b.dataset.fk) { fDraft[b.dataset.fk] = +b.dataset.v; b.parentElement.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); updateScore(); return; }
@@ -739,6 +824,8 @@ $('#view').addEventListener('click', ev => {
     case 'pick-tpl': openSession(null, b.dataset.date); break;
     case 'forme': openForme(todayS()); break;
     case 'backup': backup(); break;
+    case 'oura-sync': syncOura(true); break;
+    case 'oura-off': setPref('ouraAuth', null); render(); toast('Oura déconnectée'); break;
     case 'copy-week': {
       const src = seancesList().filter(s => s.date >= weekOf && s.date <= addDays(weekOf, 6));
       src.forEach(s => { const c = clone(s); delete c.id; c.date = addDays(s.date, 7); c.statut = 'prevue'; c.rpe = null; (c.exos || []).forEach(x => (x.series || []).forEach(st => st.ok = false)); c.maj = Date.now(); persist('seances', uid(), c); });
@@ -770,9 +857,9 @@ async function backup() {
 function markBackup() { setPref('lastBackup', Date.now()); render(); toast('Sauvegarde faite ✓'); }
 
 /* ---------- Démarrage ---------- */
-cacheLoad(); render(); connect();
+cacheLoad(); ouraFromHash(); render(); connect(); syncOura();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
-document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); syncOura(); } });
 </script>
 </body>
 </html>

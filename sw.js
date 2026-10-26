@@ -1,6 +1,6 @@
 // Fait marcher l'app sans réseau : la page est prise sur le réseau quand il y en a (pour recevoir les mises à jour),
 // sinon dans le cache ; les icônes et polices sont servies depuis le cache.
-const CACHE = 'prepa-physique-v1';
+const CACHE = 'prepa-physique-v2';
 const FILES = ['./', './index.html', './manifest.webmanifest', './apple-touch-icon.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -16,6 +16,9 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
+  // Les données Oura (relais) passent toujours par le réseau, jamais par le cache
+  const origin = new URL(req.url).origin;
+  if (origin !== self.location.origin && !origin.includes('fonts.g')) return;
   if (req.mode === 'navigate') {
     e.respondWith(fetch(req).then(r => {
       const copy = r.clone(); caches.open(CACHE).then(c => c.put('./index.html', copy)); return r;
